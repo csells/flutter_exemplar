@@ -422,8 +422,8 @@ class AppScaffold extends StatelessWidget {
                 : NavigationType.drawer,
         onDestinationSelected: (index) async {
           // TODO: close the drawer
-          // some of these options don't navigator
-          // the ones that do don't always go somewhere
+          // some of these options don't navigate; the ones that do don't go
+          // somewhere if they're already there
 
           switch (destinations[index].title.toLowerCase()) {
             case 'home':
