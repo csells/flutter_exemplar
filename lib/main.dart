@@ -210,46 +210,66 @@ class _AppState extends State<App> {
     ],
     refreshListenable: widget.appInfo,
     redirect: (state) {
-      String? location;
-      final homeloc = state.namedLocation('home');
-
+      // grab the name of the redirect route
+      String? redirName;
       switch (widget.appInfo.state) {
+        // for the unready states, redirect to the corresponding routes
         case AppState.starting:
-          // if we're not heading home, there's a deep link, so keep it in the
-          // 'from' parameter for use later
-          final queryParams = state.subloc == homeloc || _unready(state)
-              ? state.queryParams
-              : <String, String>{'from': state.subloc};
-          location = state.namedLocation('splash', queryParams: queryParams);
+          redirName = 'splash';
           break;
-
         case AppState.loggedOut:
-          // pass along the deep link (if there is one)
-          location =
-              state.namedLocation('login', queryParams: state.queryParams);
+          redirName = 'login';
           break;
-
         case AppState.loading:
-          // pass along the deep link (if there is one)
-          location =
-              state.namedLocation('loading', queryParams: state.queryParams);
+          redirName = 'loading';
           break;
 
+        // for the ready state, redirect to the deep link or the home route as
+        // appropriate; most commonly, there will be no deep link and we'll let
+        // the route through w/o redirecting, e.g. going to the 'settings' route
+        // after a successful login et al
         case AppState.ready:
-          // if we're on/going to one of the unready pages, i.e. /splash, /login
-          // or /loading, go to the deep link if there is one or home otherwise
-          if (_unready(state)) {
-            location = state.queryParams['from'] ?? homeloc;
+          // if we've moved to the ready state but we're still on an unready
+          // page, (splash, login or loading), check for a deep link param; if
+          // there is one, leave `redirName` set to `null` as a signal to use
+          // the deep link below; otherwise, we're done with the unready states
+          // for now to redirect to home
+          if (_unready(state) && state.queryParams['from'] == null) {
+            redirName = 'home';
           }
           break;
       }
 
-      // if we're already heading to the right place, return null
+      // create the location based on the redirect route name
+      String? location;
+      if (redirName != null) {
+        // pass along or capture the deep link in the location; if we're headed
+        // to the home page (the default location), don't capture that as a
+        // query param as it just messes up the link in the browser's address
+        // bar; likewise, we never want to use one of the unready routes as a
+        // deep link; in that case, we're passing along the existing query
+        // params that have been captured previously (and may be empty);
+        // otherwise, capture the deep link in the location for later use
+        final homeloc = state.namedLocation('home');
+        final queryParams = state.subloc == homeloc || _unready(state)
+            ? state.queryParams
+            : <String, String>{'from': state.subloc};
+        location = state.namedLocation(redirName, queryParams: queryParams);
+      } else {
+        // use the deep link (which may be null, indicating no redirection)
+        location = state.queryParams['from'];
+      }
+
+      // if we're already heading to the right place, return null; the location
+      // itself may null at this point, indicating no redirection
       final redirect = location == state.location ? null : location;
-      debugPrint(
-          '${widget.appInfo.state} redirect: ${state.location} => $redirect');
+      // debugPrint(
+      //   '${widget.appInfo.state} redirect: ${state.location} => $redirect',
+      // );
       return redirect;
     },
+    errorPageBuilder: (context, state) =>
+        _page(state, ErrorScreen(state.error)),
   );
 
   List<String>? unreadyRouteLocs;
@@ -397,16 +417,21 @@ class AppScaffold extends StatelessWidget {
         fabInRail: false,
         body: body,
         navigationTypeResolver: (context) =>
-            MediaQuery.of(context).size.width > 600
-                ? NavigationType.drawer
-                : NavigationType.rail,
+            MediaQuery.of(context).size.width < 600
+                ? NavigationType.rail
+                : NavigationType.drawer,
         onDestinationSelected: (index) async {
+          // TODO: close the drawer
+          // some of these options don't navigator
+          // the ones that do don't always go somewhere
+
           switch (destinations[index].title.toLowerCase()) {
             case 'home':
               context.goNamed('home');
               break;
             case 'logout':
               context.read<AppInfo>().loginInfo.logout();
+              context.goNamed('home'); // clear query string
               break;
             case 'settings':
               context.goNamed('settings');
@@ -426,5 +451,27 @@ class AppScaffold extends StatelessWidget {
               );
           }
         },
+      );
+}
+
+class ErrorScreen extends StatelessWidget {
+  const ErrorScreen(this.error, {Key? key}) : super(key: key);
+  final Exception? error;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: const Text('Page Not Found')),
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              SelectableText(error?.toString() ?? 'page not found'),
+              TextButton(
+                onPressed: () => context.go('/'),
+                child: const Text('Home'),
+              ),
+            ],
+          ),
+        ),
       );
 }
