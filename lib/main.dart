@@ -57,14 +57,14 @@ class AppInfo extends ChangeNotifier {
   final loginInfo = LoginInfo();
   final repo = ValueNotifier<Repository?>(null);
   var _state = AppState.starting;
+  static const _minSplashDuration = Duration(seconds: 2);
 
   AppState get state => _state;
 
   Future<void> _loginChange() async {
     if (!loginInfo.loggedIn) {
-      // setting repo.value calls notifyListeners
       _state = AppState.loggedOut;
-      repo.value = null;
+      repo.value = null; // calls notifyListeners
       return;
     }
 
@@ -82,15 +82,17 @@ class AppInfo extends ChangeNotifier {
       await loginInfo.logout();
     }
 
-    // setting repo.value calls notifyListeners
-    repo.value = repoVal;
+    repo.value = repoVal; // calls notifyListeners
   }
 
   Future<void> _start() async {
     assert(_state == AppState.starting);
 
     // start the app
-    await Future<void>.delayed(const Duration(seconds: 2)); // TODO
+    await Future.wait([
+      Future<void>.delayed(_minSplashDuration),
+      Future<void>.delayed(const Duration(seconds: 1)), // TODO
+    ]);
 
     _state = AppState.loggedOut;
     notifyListeners();
@@ -179,7 +181,6 @@ class _AppState extends State<App> {
   late final router = GoRouter(
     debugLogDiagnostics: true,
     routerNeglect: true,
-    initialLocation: '/settings',
     routes: [
       GoRoute(
         name: 'splash',
@@ -217,7 +218,7 @@ class _AppState extends State<App> {
           // if we're not heading home, there's a deep link, so keep it in the
           // 'from' parameter for use later
           final queryParams = state.subloc == homeloc || _unready(state)
-              ? <String, String>{}
+              ? state.queryParams
               : <String, String>{'from': state.subloc};
           location = state.namedLocation('splash', queryParams: queryParams);
           break;
