@@ -238,7 +238,9 @@ class _AppState extends State<App> {
         case AppState.ready:
           // if we're on/going to one of the unready pages, i.e. /splash, /login
           // or /loading, go to the deep link if there is one or home otherwise
-          if (_unready(state)) location = state.queryParams['from'] ?? homeloc;
+          if (_unready(state)) {
+            location = state.queryParams['from'] ?? homeloc;
+          }
           break;
       }
 
@@ -254,7 +256,10 @@ class _AppState extends State<App> {
 
   bool _unready(GoRouterState state) {
     unreadyRouteLocs ??= [
+      // TODO: why does this work...
       for (final n in App.unreadyRouteNames) state.namedLocation(n)
+      // ...but not this?
+      // for (final n in App.unreadyRouteNames) router.namedLocation(n)
     ];
     return unreadyRouteLocs!.contains(state.subloc);
   }
