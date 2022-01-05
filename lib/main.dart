@@ -142,7 +142,11 @@ class App extends StatefulWidget {
   App(this.settings, {Key? key}) : super(key: key);
 
   static const title = 'Flutter App';
-  static const unreadyRouteNames = ['splash', 'login', 'loading'];
+  static const unreadyStateRoutes = <AppState, String>{
+    AppState.starting: 'splash',
+    AppState.loggedOut: 'login',
+    AppState.loading: 'loading',
+  };
 
   final appInfo = AppInfo();
   final SettingsInfo settings;
@@ -210,54 +214,38 @@ class _AppState extends State<App> {
     ],
     refreshListenable: widget.appInfo,
     redirect: (state) {
-      // grab the name of the redirect route
-      String? redirName;
+      final homeloc = state.namedLocation('home');
+
+      // create the location based on the app state
+      String? location;
       switch (widget.appInfo.state) {
-        // for the unready states, redirect to the corresponding routes
         case AppState.starting:
-          redirName = 'splash';
-          break;
         case AppState.loggedOut:
-          redirName = 'login';
-          break;
         case AppState.loading:
-          redirName = 'loading';
+          assert(App.unreadyStateRoutes.containsKey(widget.appInfo.state));
+          final redirName = App.unreadyStateRoutes[widget.appInfo.state]!;
+
+          // for an unready state, redirect to the corresponding route,
+          // passing along or capturing the deep link in the location; if we're
+          // headed to the home page (the default location), don't capture that
+          // as a query param as it just messes up the link in the browser's
+          // address bar; likewise, we never want to use one of the unready
+          // routes as a deep link; in that case, we're passing along the
+          // existing query params that have been captured previously (and may
+          // be empty); otherwise, capture the deep link in the location for
+          // later use
+          final queryParams = state.subloc == homeloc || _unready(state)
+              ? state.queryParams
+              : <String, String>{'from': state.subloc};
+          location = state.namedLocation(redirName, queryParams: queryParams);
           break;
 
-        // for the ready state, redirect to the deep link or the home route as
-        // appropriate; most commonly, there will be no deep link and we'll let
-        // the route through w/o redirecting, e.g. going to the 'settings' route
-        // after a successful login et al
         case AppState.ready:
           // if we've moved to the ready state but we're still on an unready
-          // page, (splash, login or loading), check for a deep link param; if
-          // there is one, leave `redirName` set to `null` as a signal to use
-          // the deep link below; otherwise, we're done with the unready states
-          // for now to redirect to home
-          if (_unready(state) && state.queryParams['from'] == null) {
-            redirName = 'home';
-          }
+          // page, (splash, login or loading), use a deep link if there is
+          // one; otherwise, redirect to the home page
+          if (_unready(state)) location = state.queryParams['from'] ?? homeloc;
           break;
-      }
-
-      // create the location based on the redirect route name
-      String? location;
-      if (redirName != null) {
-        // pass along or capture the deep link in the location; if we're headed
-        // to the home page (the default location), don't capture that as a
-        // query param as it just messes up the link in the browser's address
-        // bar; likewise, we never want to use one of the unready routes as a
-        // deep link; in that case, we're passing along the existing query
-        // params that have been captured previously (and may be empty);
-        // otherwise, capture the deep link in the location for later use
-        final homeloc = state.namedLocation('home');
-        final queryParams = state.subloc == homeloc || _unready(state)
-            ? state.queryParams
-            : <String, String>{'from': state.subloc};
-        location = state.namedLocation(redirName, queryParams: queryParams);
-      } else {
-        // use the deep link (which may be null, indicating no redirection)
-        location = state.queryParams['from'];
       }
 
       // if we're already heading to the right place, return null; the location
@@ -273,13 +261,10 @@ class _AppState extends State<App> {
   );
 
   List<String>? unreadyRouteLocs;
-
   bool _unready(GoRouterState state) {
+    // cache the unready route locations the first time we're called
     unreadyRouteLocs ??= [
-      // TODO: why does this work...
-      for (final n in App.unreadyRouteNames) state.namedLocation(n)
-      // ...but not this?
-      // for (final n in App.unreadyRouteNames) router.namedLocation(n)
+      for (final n in App.unreadyStateRoutes.values) state.namedLocation(n)
     ];
     return unreadyRouteLocs!.contains(state.subloc);
   }
@@ -421,10 +406,8 @@ class AppScaffold extends StatelessWidget {
                 ? NavigationType.rail
                 : NavigationType.drawer,
         onDestinationSelected: (index) async {
-          // TODO: close the drawer
-          // some of these options don't navigate; the ones that do don't go
-          // somewhere if they're already there
-
+          // TODO: close the drawer; some of these options don't navigate; the
+          // ones that do don't close the drawer if they're already there
           switch (destinations[index].title.toLowerCase()) {
             case 'home':
               context.goNamed('home');
@@ -447,7 +430,8 @@ class AppScaffold extends StatelessWidget {
               break;
             default:
               throw Exception(
-                'Unknown destination: ${destinations[index].title}',
+                'Unhandled destination: '
+                '${destinations[index].title.toLowerCase()}',
               );
           }
         },
