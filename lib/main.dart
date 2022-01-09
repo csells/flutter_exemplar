@@ -244,7 +244,7 @@ class _AppState extends State<App> {
       // itself may null at this point, indicating no redirection
       return location == state.location ? null : location;
     },
-    errorBuilder: (context, state) => _build(ErrorScreen(state.error)),
+    errorBuilder: (context, state) => _build(ErrorView(state.error)),
     navigatorBuilder: (context, state, child) {
       final routes = router.routerDelegate.routes.where(
         (r) =>
@@ -253,14 +253,14 @@ class _AppState extends State<App> {
       );
 
       assert(
-        routes.length == 1,
+        state.error != null || routes.length == 1,
         'no single top-level route for ${state.subloc}',
       );
 
       // use the navigatorBuilder to keep the SharedScaffold from being animated
-      // as new pages as shown; wrap that in single-page Navigator at the root
-      // provides an Overlay needed for the adaptive navigation scaffold and a
-      // root Navigator to show the About box
+      // as new pages as shown; wrapping that in single-page Navigator at the
+      // root provides an Overlay needed for the adaptive navigation scaffold
+      // and a root Navigator to show the About box
       return Navigator(
         onPopPage: (route, result) {
           route.didPop(result);
@@ -290,7 +290,7 @@ class _AppState extends State<App> {
     unreadyRouteLocs ??= [
       for (final n in App.unreadyStateRoutes.values) state.namedLocation(n)
     ];
-    return unreadyRouteLocs!.contains(state.subloc);
+    return state.error != null || unreadyRouteLocs!.contains(state.subloc);
   }
 }
 
@@ -468,24 +468,21 @@ class _ReadyScaffoldState extends State<ReadyScaffold> {
   bool get _drawerSize => MediaQuery.of(context).size.width >= 600;
 }
 
-class ErrorScreen extends StatelessWidget {
-  const ErrorScreen(this.error, {Key? key}) : super(key: key);
+class ErrorView extends StatelessWidget {
+  const ErrorView(this.error, {Key? key}) : super(key: key);
   final Exception? error;
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('Page Not Found')),
-        body: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              SelectableText(error?.toString() ?? 'page not found'),
-              TextButton(
-                onPressed: () => context.go('/'),
-                child: const Text('Home'),
-              ),
-            ],
-          ),
+  Widget build(BuildContext context) => Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            SelectableText(error?.toString() ?? 'page not found'),
+            TextButton(
+              onPressed: () => context.go('/'),
+              child: const Text('Home'),
+            ),
+          ],
         ),
       );
 }
