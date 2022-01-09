@@ -174,14 +174,6 @@ class _AppState extends State<App> {
         ),
       );
 
-  Page<void> _page(GoRouterState state, Widget child) =>
-      CustomTransitionPage<void>(
-        key: state.pageKey,
-        transitionsBuilder: (context, animation, secondaryAnimation, child) =>
-            FadeTransition(opacity: animation, child: child),
-        child: child,
-      );
-
   late final router = GoRouter(
     debugLogDiagnostics: true,
     routerNeglect: true,
@@ -189,27 +181,27 @@ class _AppState extends State<App> {
       GoRoute(
         name: 'splash',
         path: '/splash',
-        pageBuilder: (context, state) => _page(state, const SplashPage()),
+        builder: (context, state) => _build(const SplashView()),
       ),
       GoRoute(
         name: 'login',
         path: '/login',
-        pageBuilder: (context, state) => _page(state, const LoginPage()),
+        builder: (context, state) => _build(const LoginView()),
       ),
       GoRoute(
         name: 'loading',
         path: '/loading',
-        pageBuilder: (context, state) => _page(state, const LoadingPage()),
+        builder: (context, state) => _build(const LoadingView()),
       ),
       GoRoute(
         name: 'home',
         path: '/',
-        pageBuilder: (context, state) => _page(state, const HomePage()),
+        builder: (context, state) => _build(const HomeView()),
       ),
       GoRoute(
         name: 'settings',
         path: '/settings',
-        pageBuilder: (context, state) => _page(state, const SettingsPage()),
+        builder: (context, state) => _build(const SettingsView()),
       ),
     ],
     refreshListenable: widget.appInfo,
@@ -250,15 +242,47 @@ class _AppState extends State<App> {
 
       // if we're already heading to the right place, return null; the location
       // itself may null at this point, indicating no redirection
-      final redirect = location == state.location ? null : location;
-      // debugPrint(
-      //   '${widget.appInfo.state} redirect: ${state.location} => $redirect',
-      // );
-      return redirect;
+      return location == state.location ? null : location;
     },
-    errorPageBuilder: (context, state) =>
-        _page(state, ErrorScreen(state.error)),
+    errorBuilder: (context, state) => _build(ErrorScreen(state.error)),
+    navigatorBuilder: (context, state, child) {
+      final routes = router.routerDelegate.routes.where(
+        (r) =>
+            state.subloc == '/' && state.subloc == r.path ||
+            r.path != '/' && state.subloc.startsWith(r.path),
+      );
+
+      assert(
+        routes.length == 1,
+        'no single top-level route for ${state.subloc}',
+      );
+
+      // use the navigatorBuilder to keep the SharedScaffold from being animated
+      // as new pages as shown; wrap that in single-page Navigator at the root
+      // provides an Overlay needed for the adaptive navigation scaffold and a
+      // root Navigator to show the About box
+      return Navigator(
+        onPopPage: (route, result) {
+          route.didPop(result);
+          return false;
+        },
+        pages: [
+          MaterialPage<void>(
+            child: _unready(state)
+                ? UnreadyScaffold(body: child)
+                : ReadyScaffold(
+                    destinationName: routes.first.name!,
+                    body: child,
+                  ),
+          ),
+        ],
+      );
+    },
   );
+
+  // wrap the view widgets in a Scaffold to get the exit animation just right on
+  // the page being replaced
+  Widget _build(Widget child) => Scaffold(body: child);
 
   List<String>? unreadyRouteLocs;
   bool _unready(GoRouterState state) {
@@ -270,109 +294,109 @@ class _AppState extends State<App> {
   }
 }
 
-class SplashPage extends StatelessWidget {
-  const SplashPage({Key? key}) : super(key: key);
+class SplashView extends StatelessWidget {
+  const SplashView({Key? key}) : super(key: key);
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text(App.title)),
-        body: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: const [
-              CircularProgressIndicator(),
-              Text('welcome!'),
-            ],
-          ),
+  Widget build(BuildContext context) => Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: const [
+            CircularProgressIndicator(),
+            Text('welcome!'),
+          ],
         ),
       );
 }
 
-class HomePage extends StatelessWidget {
-  const HomePage({Key? key}) : super(key: key);
+class HomeView extends StatelessWidget {
+  const HomeView({Key? key}) : super(key: key);
 
   @override
-  Widget build(BuildContext context) => AppScaffold(
-        destinationName: 'home',
-        body: const Center(
-          child: Text('hello, world'),
-        ),
+  Widget build(BuildContext context) => const Center(
+        child: Text('hello, world'),
       );
 }
 
-class LoginPage extends StatelessWidget {
-  const LoginPage({Key? key}) : super(key: key);
+class LoginView extends StatelessWidget {
+  const LoginView({Key? key}) : super(key: key);
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text(App.title)),
-        body: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              ElevatedButton(
-                onPressed: () =>
-                    context.read<AppInfo>().loginInfo.login('test-user'),
-                child: const Text('Login'),
-              ),
-            ],
-          ),
-        ),
-      );
-}
-
-class LoadingPage extends StatelessWidget {
-  const LoadingPage({Key? key}) : super(key: key);
-
-  @override
-  Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text(App.title)),
-        body: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: const [
-              CircularProgressIndicator(),
-              Text('loading...'),
-            ],
-          ),
-        ),
-      );
-}
-
-class SettingsPage extends StatelessWidget {
-  const SettingsPage({Key? key}) : super(key: key);
-
-  @override
-  Widget build(BuildContext context) => AppScaffold(
-        destinationName: 'settings',
-        body: Consumer<SettingsInfo>(
-          builder: (context, settings, child) => Padding(
-            padding: const EdgeInsets.all(16),
-            child: DropdownButton<ThemeMode>(
-              value: settings.themeMode,
-              onChanged: settings.setThemeMode,
-              items: const [
-                DropdownMenuItem(
-                  value: ThemeMode.system,
-                  child: Text('System Theme'),
-                ),
-                DropdownMenuItem(
-                  value: ThemeMode.light,
-                  child: Text('Light Theme'),
-                ),
-                DropdownMenuItem(
-                  value: ThemeMode.dark,
-                  child: Text('Dark Theme'),
-                )
-              ],
+  Widget build(BuildContext context) => Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            ElevatedButton(
+              onPressed: () =>
+                  context.read<AppInfo>().loginInfo.login('test-user'),
+              child: const Text('Login'),
             ),
+          ],
+        ),
+      );
+}
+
+class LoadingView extends StatelessWidget {
+  const LoadingView({Key? key}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) => Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: const [
+            CircularProgressIndicator(),
+            Text('loading...'),
+          ],
+        ),
+      );
+}
+
+class SettingsView extends StatelessWidget {
+  const SettingsView({Key? key}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) => Consumer<SettingsInfo>(
+        builder: (context, settings, child) => Padding(
+          padding: const EdgeInsets.all(16),
+          child: DropdownButton<ThemeMode>(
+            value: settings.themeMode,
+            onChanged: settings.setThemeMode,
+            items: const [
+              DropdownMenuItem(
+                value: ThemeMode.system,
+                child: Text('System Theme'),
+              ),
+              DropdownMenuItem(
+                value: ThemeMode.light,
+                child: Text('Light Theme'),
+              ),
+              DropdownMenuItem(
+                value: ThemeMode.dark,
+                child: Text('Dark Theme'),
+              )
+            ],
           ),
         ),
       );
 }
 
-class AppScaffold extends StatelessWidget {
-  AppScaffold({
+class UnreadyScaffold extends StatelessWidget {
+  const UnreadyScaffold({
+    required this.body,
+    Key? key,
+  }) : super(key: key);
+
+  final Widget body;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: const Text(App.title)),
+        body: body,
+      );
+}
+
+class ReadyScaffold extends StatefulWidget {
+  ReadyScaffold({
     required String destinationName,
     required this.body,
     Key? key,
@@ -395,20 +419,24 @@ class AppScaffold extends StatelessWidget {
   final int selectedIndex;
 
   @override
+  State<ReadyScaffold> createState() => _ReadyScaffoldState();
+}
+
+class _ReadyScaffoldState extends State<ReadyScaffold> {
+  @override
   Widget build(BuildContext context) => AdaptiveNavigationScaffold(
-        selectedIndex: selectedIndex,
-        destinations: destinations,
+        selectedIndex: widget.selectedIndex,
+        destinations: ReadyScaffold.destinations,
         appBar: AdaptiveAppBar(title: const Text(App.title)),
         fabInRail: false,
-        body: body,
+        body: widget.body,
         navigationTypeResolver: (context) =>
-            MediaQuery.of(context).size.width < 600
-                ? NavigationType.rail
-                : NavigationType.drawer,
+            _drawerSize ? NavigationType.drawer : NavigationType.bottom,
         onDestinationSelected: (index) async {
-          // TODO: close the drawer; some of these options don't navigate; the
-          // ones that do don't close the drawer if they're already there
-          switch (destinations[index].title.toLowerCase()) {
+          // if there's a drawer, close it
+          if (_drawerSize) Navigator.pop(context);
+
+          switch (ReadyScaffold.destinations[index].title.toLowerCase()) {
             case 'home':
               context.goNamed('home');
               break;
@@ -425,17 +453,19 @@ class AppScaffold extends StatelessWidget {
                 context: context,
                 applicationName: packageInfo.appName,
                 applicationVersion: 'v${packageInfo.version}',
-                applicationLegalese: 'Copyright © 2021, Acme, Corp.',
+                applicationLegalese: 'Copyright © 2022, Acme, Corp.',
               );
               break;
             default:
               throw Exception(
                 'Unhandled destination: '
-                '${destinations[index].title.toLowerCase()}',
+                '${ReadyScaffold.destinations[index].title.toLowerCase()}',
               );
           }
         },
       );
+
+  bool get _drawerSize => MediaQuery.of(context).size.width >= 600;
 }
 
 class ErrorScreen extends StatelessWidget {
