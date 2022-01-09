@@ -1,36 +1,43 @@
+import 'dart:async';
+
 import 'package:adaptive_navigation/adaptive_navigation.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutterfire_ui/auth.dart';
 import 'package:go_router/go_router.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'firebase_options.dart';
+
 Future<void> main() async {
   // load and initialize settings, which is needed to create the app
+  WidgetsFlutterBinding.ensureInitialized();
   final settings = await SettingsInfo.load();
   runApp(App(settings));
 }
 
 class LoginInfo extends ChangeNotifier {
-  String? _userName;
+  User? _user;
 
-  String? get userName => _userName;
-  bool get loggedIn => _userName != null;
+  User? get user => _user;
+  bool get loggedIn => _user != null;
 
-  Future<void> login(String userName) async {
-    _userName = userName;
+  Future<void> setUser(User user) async {
+    if (user.uid == _user?.uid) return;
+    assert(_user == null); // should logout old user first
+    _user = user;
     notifyListeners();
-
-    // login
-    await Future<void>.delayed(const Duration(seconds: 2)); // TODO
   }
 
   Future<void> logout() async {
-    _userName = null;
+    if (_user == null) return;
+    _user = null;
     notifyListeners();
-
-    // logout
-    await Future<void>.delayed(const Duration(seconds: 2)); // TODO
+    await FirebaseAuth.instance.signOut();
   }
 }
 
@@ -39,7 +46,7 @@ class Repository {
 
   static Future<Repository?> get(String userName) async {
     // load the repository for the user
-    await Future<void>.delayed(const Duration(seconds: 2)); // TODO
+    await Future<void>.delayed(const Duration(seconds: 1)); // TODO
 
     return Repository._();
   }
@@ -73,7 +80,8 @@ class AppInfo extends ChangeNotifier {
     notifyListeners();
 
     // get a repository for the user
-    final repoVal = await Repository.get(loginInfo.userName!);
+    assert(loginInfo.user != null);
+    final repoVal = await Repository.get(loginInfo.user!.uid);
     if (repoVal != null) {
       // we're ready
       _state = AppState.ready;
@@ -91,11 +99,48 @@ class AppInfo extends ChangeNotifier {
     // start the app
     await Future.wait([
       Future<void>.delayed(_minSplashDuration),
-      Future<void>.delayed(const Duration(seconds: 1)), // TODO
+      _initFirebase(),
     ]);
 
-    _state = AppState.loggedOut;
-    notifyListeners();
+    // if the user is logged in, we'll already be loading
+    await _initUser();
+    if (_state == AppState.starting) {
+      _state = AppState.loggedOut;
+      notifyListeners();
+    }
+  }
+
+  Future<void> _initFirebase() async {
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+
+    if (kIsWeb) {
+      // hack to avoid the lack of initial login credentials; without this, when
+      // the user is already logged in, the login screen will show up for a
+      // second and then go away when FlutterFire finally loads the credentials
+      await FirebaseAuth.instance.authStateChanges().first;
+
+      // keep auth credentials between sessions on the web (default elsewhere)
+      await FirebaseAuth.instance.setPersistence(Persistence.LOCAL);
+    }
+  }
+
+  Future<void> _initUser() async {
+    // check if the user is already logged in
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) await loginInfo.setUser(user);
+
+    // listen for auth state changes
+    FirebaseAuth.instance.authStateChanges().listen(_firebaseAuthChanged);
+  }
+
+  Future<void> _firebaseAuthChanged(User? user) async {
+    if (user == null) {
+      await loginInfo.logout();
+    } else {
+      await loginInfo.setUser(user);
+    }
   }
 
   @override
@@ -106,6 +151,7 @@ class AppInfo extends ChangeNotifier {
   }
 }
 
+// ignore: prefer_mixin
 class SettingsInfo with ChangeNotifier {
   SettingsInfo._(this.prefs) {
     // load the initial settings
@@ -262,7 +308,7 @@ class _AppState extends State<App> {
       // root provides an Overlay needed for the adaptive navigation scaffold
       // and a root Navigator to show the About box
       return Navigator(
-        onPopPage: (route, result) {
+        onPopPage: (route, dynamic result) {
           route.didPop(result);
           return false;
         },
@@ -303,6 +349,7 @@ class SplashView extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           children: const [
             CircularProgressIndicator(),
+            SizedBox(height: 8),
             Text('welcome!'),
           ],
         ),
@@ -322,15 +369,31 @@ class LoginView extends StatelessWidget {
   const LoginView({Key? key}) : super(key: key);
 
   @override
-  Widget build(BuildContext context) => Center(
+  Widget build(BuildContext context) => SignInScreen(
+        providerConfigs: const [
+          EmailProviderConfiguration(),
+          GoogleProviderConfiguration(
+            clientId:
+                // ignore: lines_longer_than_80_chars
+                '122227190545-28n7s71f70tqm88qhm7ug4m8odhj02ks.apps.googleusercontent.com',
+          ),
+        ],
+        headerBuilder: (context, constraints, _) => const AuthAdornments(),
+        sideBuilder: (context, constraints) => const AuthAdornments(),
+      );
+}
+
+class AuthAdornments extends StatelessWidget {
+  const AuthAdornments({Key? key}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.all(8),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            ElevatedButton(
-              onPressed: () =>
-                  context.read<AppInfo>().loginInfo.login('test-user'),
-              child: const Text('Login'),
-            ),
+          children: const [
+            FlutterLogo(size: 100),
+            Text('Flutter Exemplar'),
           ],
         ),
       );
@@ -345,39 +408,48 @@ class LoadingView extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           children: const [
             CircularProgressIndicator(),
+            SizedBox(height: 8),
             Text('loading...'),
           ],
         ),
       );
 }
 
+// TODO: add Firebase profile settings
 class SettingsView extends StatelessWidget {
   const SettingsView({Key? key}) : super(key: key);
 
   @override
   Widget build(BuildContext context) => Consumer<SettingsInfo>(
-        builder: (context, settings, child) => Padding(
-          padding: const EdgeInsets.all(16),
-          child: DropdownButton<ThemeMode>(
-            value: settings.themeMode,
-            onChanged: settings.setThemeMode,
-            items: const [
-              DropdownMenuItem(
-                value: ThemeMode.system,
-                child: Text('System Theme'),
-              ),
-              DropdownMenuItem(
-                value: ThemeMode.light,
-                child: Text('Light Theme'),
-              ),
-              DropdownMenuItem(
-                value: ThemeMode.dark,
-                child: Text('Dark Theme'),
-              )
-            ],
+        builder: (context, settings, child) => Center(
+          child: Form(
+            child: Column(
+              children: [
+                SizedBox(
+                  width: 200,
+                  child: DropdownButtonFormField<ThemeMode>(
+                    decoration: const InputDecoration(labelText: 'Theme'),
+                    value: settings.themeMode,
+                    onChanged: settings.setThemeMode,
+                    items: [
+                      for (final theme in ThemeMode.values)
+                        DropdownMenuItem(
+                          value: theme,
+                          child: Text(theme.name.capitalize()),
+                        )
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       );
+}
+
+extension on String {
+  String capitalize() =>
+      '${this[0].toUpperCase()}${substring(1).toLowerCase()}';
 }
 
 class UnreadyScaffold extends StatelessWidget {
@@ -441,7 +513,7 @@ class _ReadyScaffoldState extends State<ReadyScaffold> {
               context.goNamed('home');
               break;
             case 'logout':
-              context.read<AppInfo>().loginInfo.logout();
+              unawaited(context.read<AppInfo>().loginInfo.logout());
               context.goNamed('home'); // clear query string
               break;
             case 'settings':
